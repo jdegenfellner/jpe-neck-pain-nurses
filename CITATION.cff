@@ -7,6 +7,7 @@ authors:
     given-names: Jürgen
     affiliation: "Zurich University of Applied Sciences, Institute of Physiotherapy"
 license: MIT
+doi: 10.5281/zenodo.22674559
 repository-code: "https://github.com/jdegenfellner/jpe-neck-pain-nurses"
 date-released: 2026-09-09
 version: v1.0.0

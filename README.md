@@ -1,5 +1,7 @@
 # Cervical joint position error and neck pain in hospital nurses
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22674559.svg)](https://doi.org/10.5281/zenodo.22674559)
+
 Analysis code for
 
 > Quesada D, Ernst MJ, Degenfellner J, Pfeiffer F.
@@ -36,6 +38,12 @@ repository folder. These files are ignored by git.
 
 The data cannot be shared publicly. Requests should be sent to the
 corresponding author, Fabian Pfeiffer (fabian.pfeiffer@zhaw.ch).
+
+## Citation
+
+Archived on Zenodo. Concept DOI (always resolves to the latest version):
+[10.5281/zenodo.22674559](https://doi.org/10.5281/zenodo.22674559).
+Version v1.0.0: [10.5281/zenodo.22674560](https://doi.org/10.5281/zenodo.22674560).
 
 ## License
 
