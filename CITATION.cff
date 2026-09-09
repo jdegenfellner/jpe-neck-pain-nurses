@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite the manuscript and this repository."
+title: "Analysis code: Association between cervical joint position error and neck pain in hospital nurses"
+type: software
+authors:
+  - family-names: Degenfellner
+    given-names: Jürgen
+    affiliation: "Zurich University of Applied Sciences, Institute of Physiotherapy"
+license: MIT
+repository-code: "https://github.com/jdegenfellner/jpe-neck-pain-nurses"
+date-released: 2026-09-09
+version: v1.0.0
