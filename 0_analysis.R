@@ -1,8 +1,11 @@
 # outcome: NRS, neck pain yes/no
 # explanatory variables: AE, VE, CE, headache, age, sex, bmi, stress
 
-# Set working directory to source file location
-setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+# Set working directory to source file location (in RStudio). When run via
+# run_all.R or Rscript, the working directory is already R_Codes_and_DATA/.
+if (interactive() && requireNamespace("rstudioapi", quietly = TRUE) &&
+    rstudioapi::isAvailable() && sys.nframe() == 0)
+  setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
 library(pacman) 
 pacman::p_load(data.table,
@@ -28,8 +31,16 @@ pacman::p_load(data.table,
                tictoc,
                car,
                flextable,
-               officer)
+               officer,
+               pwr)
 #BiocManager::install("EBImage")
+
+# SAMPLE SIZE----------
+# Manuscript (Methods, "Sample size"): multiple linear regression for NRS with
+# five predictors, R^2 = 0.30 (Cohen's f^2 = R^2 / (1 - R^2)), alpha = 0.05,
+# power = 0.8 -> 36 participants.
+ss <- pwr.f2.test(u = 5, f2 = 0.30 / (1 - 0.30), sig.level = 0.05, power = 0.8)
+(n_required <- ceiling(ss$v) + 5 + 1)  # n = v + u + 1 = 36
 
 # READ----------
 df <- read.csv("./DATA/schwyz_data_Doris2026.csv",
@@ -355,50 +366,115 @@ df %>%
 
 # Table 1------
 # https://blog.djnavarro.net/posts/2024-06-21_table1/
+# Produces Table 1 of the manuscript ("Characteristics of participants"):
+# sex, the four pooled HSQ headache groups, and for NDI/PSQ the number of
+# completed questionnaires per column plus the missing rows.
 
-Hmisc::label(df$age) <- "Age"
-Hmisc::label(df$work_percent) <- "Percentage of employment"
-Hmisc::label(df$neck_pain_nrs) <- "Numeric Rating Scale (0-10)"
-Hmisc::label(df$ndiscore) <- "NDI (n=32)"
-Hmisc::label(df$headachetype) <- "Type of Headache (n=35)"
-Hmisc::label(df$psqoverall) <- "Stress, PSQ (n=28)"
+df_t1 <- df
+df_t1$group <- factor(df_t1$neck_pain, levels = c("no", "yes"),
+                      labels = c("No Neck Pain", "Neck Pain"))
+df_t1$sex_t1 <- factor(df_t1$sex, levels = c("female", "male"))
 
-table1::table1(~age + work_percent + neck_pain_nrs + 
-                 headachetype + ndiscore + psqoverall | neck_pain, 
-               data = df)
-# nice
+# HSQ: probable diagnoses are pooled with the definite ones
+hsq_levels <- c("migraine and probable migraine", "TTH and probable TTH",
+                "other headache conditions", "no headache")
+df_t1$hsq_group <- factor(
+  dplyr::case_when(
+    df_t1$headachetype %in% c("migraine", "probable migraine") ~ hsq_levels[1],
+    df_t1$headachetype %in% c("TTH", "probable TTH")           ~ hsq_levels[2],
+    df_t1$headachetype == "other headache"                     ~ hsq_levels[3],
+    df_t1$headachetype == "no"                                 ~ hsq_levels[4]),
+  levels = hsq_levels)
+stopifnot(!anyNA(df_t1$hsq_group))  # every headache type is mapped
 
-table1_obj <- table1::table1(~ age + work_percent + neck_pain_nrs + headachetype + 
-                               ndiscore + psqoverall | neck_pain, 
-                             data = df)
+Hmisc::label(df_t1$sex_t1)        <- "Sex"
+Hmisc::label(df_t1$age)           <- "Age"
+Hmisc::label(df_t1$work_percent)  <- "Percentage of employment"
+Hmisc::label(df_t1$neck_pain_nrs) <- "Numeric Rating Scale (NRS) (0-10)"
+Hmisc::label(df_t1$hsq_group)     <- "Headache Screening Questionnaire (HSQ) (n=42)"
+Hmisc::label(df_t1$ndiscore)      <- "Neck Disability Index (NDI) in % (n=32)"
+Hmisc::label(df_t1$psqoverall)    <- "Perceived Stress Questionnaire (PSQ) (n=28)"
+
+# Continuous: Mean (SD) only. For the questionnaires filled in by a subgroup
+# (NDI, PSQ) the label row shows the number of completed questionnaires.
+# NRS is reported with two decimals, everything else with 3 significant digits.
+render_cont_t1 <- function(x, name, ...) {
+  out <- if (name == "neck_pain_nrs")
+    c("Mean (SD)" = sprintf("%.2f (%.2f)", mean(x), sd(x))) else
+    table1::render.continuous.default(x, ...)["Mean (SD)"]
+  first <- if (name %in% c("ndiscore", "psqoverall"))
+    sprintf("(n=%d)", sum(!is.na(x))) else ""
+  c(first, out)
+}
+render_t1 <- function(x, name, ...) {
+  if (is.numeric(x)) {
+    r <- render_cont_t1(x[!is.na(x)], name)
+    if (anyNA(x) || name %in% c("ndiscore", "psqoverall"))
+      r <- c(r, table1::render.missing.default(x))
+    r
+  } else {
+    table1::render.default(x, name, ...)
+  }
+}
+
+table1_obj <- table1::table1(
+  ~ sex_t1 + age + work_percent + neck_pain_nrs + hsq_group +
+    ndiscore + psqoverall | group,
+  data = df_t1, render = render_t1,
+  render.strat = function(strata, ...) {  # column headers with "(n=..)"
+    n <- sapply(strata, nrow)
+    setNames(sprintf("%s<br/><span class='stratn'>(n=%d)</span>", names(strata), n),
+             sprintf("%s\n(n=%d)", names(strata), n))
+  },
+  caption = "Table 1: Characteristics of participants",
+  footnote = paste("Abbreviations: SD = standard deviation, TTH = tension type",
+                   "headache, NDI = neck disability index,",
+                   "PSQ = perceived stress questionnaire"))
+table1_obj
+
 ft <- t1flex(table1_obj)
-
-doc <- read_docx() %>%
-  body_add_flextable(ft) %>%
-  body_add_par("Tabelle: Statistische Übersicht", style = "heading 2")
-
-print(doc, target = "Table1_Output.docx") 
+doc <- read_docx() %>% body_add_flextable(ft)
+print(doc, target = "Table1_Output.docx")
 
 
 
 
-# Table 1------------
-Hmisc::label(df$ae_rrot) <- "AE Right Rotation"
-Hmisc::label(df$ce_rrot) <- "CE Right Rotation"
-Hmisc::label(df$ve_rrot) <- "VE Right Rotation"
-Hmisc::label(df$ae_lrot) <- "AE Left Rotation"
-Hmisc::label(df$ce_lrot) <- "CE Left Rotation"
-Hmisc::label(df$ve_lrot) <- "VE Left Rotation"
-Hmisc::label(df$ae_ext) <- "AE Extension"
-Hmisc::label(df$ce_ext) <- "CE Extension"
-Hmisc::label(df$ve_ext) <- "VE Extension"
-Hmisc::label(df$ae_flex) <- "AE Flexion"
-Hmisc::label(df$ce_flex) <- "CE Flexion"
-Hmisc::label(df$ve_flex) <- "VE Flexion"
-table1::table1(~ ae_rrot + ce_rrot + ve_rrot + ae_lrot +ce_lrot + ve_lrot
-               + ae_ext + ce_ext + ve_ext + ae_flex + ce_flex + 
-                 ve_flex | neck_pain, 
-               data = df)
+# Table 2------------
+# Measurements of joint position error (in degree), Mean (SD) with two
+# decimals, grouped by movement direction as in the manuscript.
+t2_dirs <- c(rrot = "Right Rotation", lrot = "Left Rotation",
+             ext = "Extension", flex = "Flexion")
+fmt_ms <- function(x) sprintf("%.2f (%.2f)", mean(x), sd(x))
+t2_rows <- list()
+for (d in names(t2_dirs)) {
+  t2_rows[[length(t2_rows) + 1]] <- data.frame(
+    Measure = t2_dirs[[d]], noNP = "", NP = "", all = "")
+  for (m in c("AE", "CE", "VE")) {
+    v <- paste0(tolower(m), "_", d)
+    t2_rows[[length(t2_rows) + 1]] <- data.frame(
+      Measure = sprintf("%s %s Mean (SD)", m, t2_dirs[[d]]),
+      noNP = fmt_ms(df[[v]][df$neck_pain == "no"]),
+      NP   = fmt_ms(df[[v]][df$neck_pain == "yes"]),
+      all  = fmt_ms(df[[v]]))
+  }
+}
+table2 <- do.call(rbind, t2_rows)
+table2
+
+n_grp <- table(df$neck_pain)
+ft_t2 <- flextable(table2) %>%
+  set_header_labels(Measure = "",
+                    noNP = sprintf("No Neck Pain\n(N=%d)", n_grp[["no"]]),
+                    NP   = sprintf("Neck Pain\n(N=%d)", n_grp[["yes"]]),
+                    all  = sprintf("Overall\n(N=%d)", nrow(df))) %>%
+  bold(i = which(table2$noNP == ""), j = 1) %>%
+  add_footer_lines(paste("Abbreviations: AE = absolute error, CE = constant error,",
+                         "VE = variable error, SD = standard deviation")) %>%
+  autofit()
+doc_t2 <- read_docx() %>%
+  body_add_par("Table 2: Measurements of joint position error (in degree)") %>%
+  body_add_flextable(ft_t2)
+print(doc_t2, target = "Table2_Output.docx")
 
 
 
@@ -492,7 +568,7 @@ nice_labels <- c("(Intercept)" = "Intercept",
 model_NRS_BIC_table <- data.frame(
   Predictor    = nice_labels[names(est)],
   B            = round(est, 2),
-  CI_95        = sprintf("[%.2f, %.2f]", ci[, 1], ci[, 2]),
+  CI_95        = sprintf("[%.2f to %.2f]", ci[, 1], ci[, 2]),
   beta_std     = round(std_est[names(est)], 2),
   check.names  = FALSE,
   row.names    = NULL
@@ -591,17 +667,28 @@ pred_label[is.na(pred_label)] <- names(or_est)[is.na(pred_label)]  # fallback to
 model_neckpain_table <- data.frame(
   Predictor   = pred_label,
   OR          = round(or_est, 2),
-  CI_95       = sprintf("[%.2f, %.2f]", or_ci[, 1], or_ci[, 2]),
+  CI_95       = sprintf("[%.2f to %.2f]", or_ci[, 1], or_ci[, 2]),
   check.names = FALSE,
   row.names   = NULL
 )
 model_neckpain_table
+
+# Model statistics reported in the table footnote of the manuscript
+r2_mf <- performance::r2_mcfadden(model_neckpain_BIC)
+neckpain_footnote <- sprintf(paste0(
+  "McFadden's adjusted pseudo-R² = %.3f. Akaike's information criterion = %.2f, ",
+  "null deviance = %.2f (df = %d); Residual deviance = %.2f (df = %d)"),
+  r2_mf$R2_adjusted, AIC(model_neckpain_BIC),
+  model_neckpain_BIC$null.deviance, model_neckpain_BIC$df.null,
+  model_neckpain_BIC$deviance, model_neckpain_BIC$df.residual)
+neckpain_footnote
 
 ft_neckpain <- flextable(model_neckpain_table) %>%
   set_header_labels(OR = "Odds ratio", CI_95 = "95% CI") %>%
   add_header_lines(
     paste0("Logistic model: Neck pain (yes/no) ~ ",
            paste(all.vars(form_neckpain)[-1], collapse = " + "))) %>%
+  add_footer_lines(neckpain_footnote) %>%
   autofit()
 ft_neckpain
 
@@ -614,6 +701,6 @@ print(doc_neckpain, target = "Table_neckpain_logistic_model.docx")
 
 # Sessionsinformationen - loaded packages
 sink("sessionInfo.txt")
-sessionInfo()
+print(sessionInfo())
 sink()
 
